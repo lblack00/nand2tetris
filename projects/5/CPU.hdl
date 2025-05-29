@@ -31,19 +31,58 @@ CHIP CPU {
         pc[15];          // address of next instruction
 
     PARTS:
-	//Not(in=instruction[15], out=noti15);
-    //Xor(a=instruction[15], b=noti15, out=zero);
-    //Mux16(a=instruction, b=aluout, sel=instruction[15], out=registerain);
-    //ARegister(in=registerain, load=noti15, out=registeraout, out[0..14]=addressM);
-    //DRegister(in=aluout, load=instruction[4], out=aluinx);
-    //Mux16(a=inM, b=registeraout, sel=instruction[11], out=aluiny);
-    //ALU(x=aluinx, y=aluiny,
-    //    zx=instruction[11],
-    //    nx=instruction[10],
-    //    zy=instruction[9],
-    //    ny=instruction[8],
-    //    f=instruction[7],
-    //    no=instruction[6], out=outM, out=aluout, zr=aluzr, ng=alung);
-    Mux16(a=instruction, b=instruction, sel=instruction[15], out=registerain);
-    ARegister(in=registerain, load=instruction[15], out=registeraout, out[0..14]=addressM);
+    // Determine if A-instruction or C-instruction from MSB
+    Not(in=instruction[15], out=AInstruction);
+    And(a=instruction[15], b=instruction[15], out=CInstruction);
+
+    // Determine control bit on instruction type
+    Or(a=instruction[5], b=AInstruction, out=aregload);
+
+    // Mux if c=1, take in the address computed from previous ALU output
+    //     else, address in input instruction
+    Mux16(a=instruction, b=aluout, sel=instruction[15], out=preaout);
+    // Store Mux output in ARegister, load on control bit, addressM=aout[0..14]
+    ARegister(in=preaout, load=aregload, out=aout, out[0..14]=addressM);
+
+    // ALU inputs (memory input and data register to store computed values)
+    Mux16(a=aout, b=inM, sel=instruction[12], out=aluiny);
+    And(a=instruction[4], b=CInstruction, out=dregload);
+    DRegister(in=aluout, load=dregload, out=dout, out=aluinx);
+
+    // ALU 
+    ALU(x=aluinx, y=aluiny,
+        zx=instruction[11],
+        nx=instruction[10],
+        zy=instruction[9],
+        ny=instruction[8],
+        f=instruction[7],
+        no=instruction[6],
+        out=outM, out=aluout, zr=jeq, ng=jlt);
+
+    // writeM = 0 when AInstruction, writeM=instruction[3] when C-instruction
+    Mux(a=CInstruction, b=instruction[3], sel=CInstruction, out=writeM);
+
+    // Program Counter conditions
+    // JNE (out != 0)
+    Not(in=jeq, out=jne);
+    // JGE (out >= 0)
+    Not(in=jlt, out=jge);
+    // JGT (out > 0)
+    And(a=jge, b=jne, out=jgt);
+    // JLE (out <= 0)
+    Or(a=jeq, b=jlt, out=jle);
+    // load condition
+    Mux8Way16(a[0]=false,
+              b[0]=jgt,
+              c[0]=jeq,
+              d[0]=jge,
+              e[0]=jlt,
+              f[0]=jne,
+              g[0]=jle,
+              h[0]=true,
+              sel=instruction[0..2], out[0]=jcondition);
+    // PC should only load on C-instruction and jump condition
+    And(a=CInstruction, b=jcondition, out=pcload);
+    // PC will always increment, handles load internally
+    PC(in=aout, load=pcload, inc=true, reset=reset, out[0..14]=pc);
 }
