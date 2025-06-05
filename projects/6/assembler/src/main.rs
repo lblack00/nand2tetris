@@ -1,7 +1,20 @@
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead};
-use regex::Regex;
+
+const MAX_ADDRESS: usize = 0x7FFF;
+const STARTING_VARIABLE_ADDRESS: usize = 16;
+static SYMBOL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z]+[A-Za-z0-9_]*$").unwrap());
+static ADDRESS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[0-9]+$").unwrap());
+
+// struct Assembler<'a> {
+//     // filepath: &'a str,
+//     // symbols: &'a mut HashMap<String, usize>,
+//     // symbol_counter: &'a mut usize,
+// }
+struct Assembler;
 
 #[derive(Clone, Debug, PartialEq)]
 enum InstructionType {
@@ -10,94 +23,178 @@ enum InstructionType {
     CInstruction,
 }
 
+#[derive(Debug)]
+enum ParserError {
+    EmptyAddress,
+    InvalidNumber(std::num::ParseIntError),
+    InvalidFormat,
+    InvalidSymbol,
+}
+
+impl std::fmt::Display for ParserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParserError::EmptyAddress => write!(f, "Empty address provided"),
+            ParserError::InvalidNumber(n) => write!(f, "Unable to parse number: {}", n),
+            ParserError::InvalidFormat => write!(f, "Invalid instruction format"),
+            ParserError::InvalidSymbol => write!(f, "Invalid symbol format"),
+        }
+    }
+}
+
+impl From<std::num::ParseIntError> for ParserError {
+    fn from(err: std::num::ParseIntError) -> Self {
+        ParserError::InvalidNumber(err)
+    }
+}
+
 struct Parser<'a> {
     filepath: &'a str,
-    symbols: &'a mut HashMap<String, usize>,
 }
 
 impl Parser<'_> {
-    pub fn parse(&mut self) {
-        let mut symbol_counter: usize = 16;
+    fn parse(&mut self) -> Result<bool, ParserError> {
         if let Ok(lines) = self.read_lines() {
-            // Consumes the iterator, returns an (Optional) String
             for line in lines.map_while(Result::ok) {
-                self.parse_line(&line, &mut symbol_counter);
-            }
-        }
-    }
-
-    // todo: clean this up
-    fn parse_line(&mut self, line: &str, symbol_counter: &mut usize) -> bool {
-        // Take instructions before inline comments
-        let current_instruction = match line.split_once("//") {
-            Some((before, _)) => before.trim(),
-            None => line.trim(),
-        };
-        // Check if instruction is whitespace or comment
-        if current_instruction.is_empty() {
-            return false;
-        }
-
-        // Determine instruction type
-        let instruction_type: InstructionType = self.instruction_type(current_instruction);
-
-        // Parse instructions
-        if instruction_type == InstructionType::CInstruction {
-            let dest_str = self.dest(current_instruction);
-            let comp_str = self.comp(current_instruction);
-            let jump_str = self.jump(current_instruction);
-            let bin_str = "111".to_owned() + dest_str + comp_str + jump_str;
-            println!("{:?}", bin_str);
-        } else if instruction_type == InstructionType::AInstruction {
-            let addr_str = self.addr(current_instruction);
-
-
-            if !addr_str.is_empty() {
-                let re = Regex::new(r"^[A-Z]+_*[0-9]*$").unwrap();
-                let Some(symbol) = re.captures(addr_str) else {
-                //     // let bin_str =
-                //     //     format!("{:016b}", addr_str.parse::<usize>().unwrap() & 0x7FFF);
-                //     // // println!("{:?}", bin_str);
-                //     // return true;
-                    return true;
+                // Take instructions before inline comments if any
+                let current_instruction = match line.split_once("//") {
+                    Some((before, _)) => before.trim(),
+                    None => line.trim(),
                 };
 
-                // println!("{:?} {:?}", symbol, addr_str);
-                // );
-                if !self.symbols.contains_key(&symbol[0]) {
-                    self.symbols.insert(symbol[0].to_string(), *symbol_counter);
-                    *symbol_counter += 1;
+                // Check if instruction is whitespace or comment
+                if current_instruction.is_empty() {
+                    continue;
                 }
 
-                print!("{:?}", self.symbols.get(&symbol[0]));
+                // Determine instruction type
+                let instruction_type: InstructionType = self.instruction_type(current_instruction);
+
+                // Parse instructions
+                let result = match instruction_type {
+                    InstructionType::CInstruction => self.parse_c_instruction(current_instruction),
+                    InstructionType::AInstruction => self.parse_a_instruction(current_instruction),
+                    InstructionType::LInstruction => todo!(),
+                };
+
+                // Write binary string to output and panic on invalid instruction
+                match result {
+                    Ok(parsed_result) => println!("{:?}", parsed_result),
+                    Err(e) => panic!("Error parsing instruction '{}': {}", line, e),
+                }
             }
         }
 
-        println!("{:?} {:?}", current_instruction, instruction_type);
-
-        true
+        Ok(true)
     }
 
-    fn addr<'a>(&self, instruction: &'a str) -> &'a str {
-        match instruction.split_once('@') {
-            Some((_, addr_str)) => addr_str,
-            None => "",
+    fn parse_c_instruction(&mut self, current_instruction: &str) -> Result<String, ParserError> {
+        let comp_bin_str = Code.comp_to_binary(self.comp(current_instruction)?);
+        let dest_str = Code.dest_to_binary(self.dest(current_instruction).unwrap_or("null"));
+        let jump_str = Code.jump_to_binary(self.jump(current_instruction).unwrap_or("null"));
+        let bin_str = format!("111{}{}{}", comp_bin_str, dest_str, jump_str);
+
+        Ok(bin_str)
+    }
+
+    fn parse_a_instruction(&mut self, current_instruction: &str) -> Result<String, ParserError> {
+        let addr_str = self
+            .addr(current_instruction)
+            .ok_or(ParserError::EmptyAddress)?;
+
+        if addr_str.is_empty() {
+            return Err(ParserError::EmptyAddress);
         }
+
+        // if SYMBOL_RE.is_match(&addr_str) {
+        //     return Ok(self.parse_symbol(&addr_str)?);
+        // } else if ADDRESS_RE.is_match(&addr_str) {
+        //     let bin_str = format!("{:016b}", addr_str.parse::<usize>()? & MAX_ADDRESS);
+        //     return Ok(bin_str);
+        // }
+
+        if ADDRESS_RE.is_match(&addr_str) {
+            let bin_str = format!("{:016b}", addr_str.parse::<usize>()? & MAX_ADDRESS);
+            return Ok(bin_str);
+        }
+
+        Err(ParserError::InvalidFormat)
     }
 
-    fn comp(&self, instruction: &str) -> &str {
-        let comp_str = if let Some((_, after)) = instruction.rsplit_once('=') {
+    // fn parse_symbol(&mut self, addr_str: &str) -> Result<String, ParserError> {
+        // // If symbol is not in the symbol table, add it to symbol table as variable
+        // if !self.symbols.contains_key(addr_str) {
+        //     self.symbols
+        //         .insert(addr_str.to_string(), *self.symbol_counter);
+        //     *self.symbol_counter += 1;
+        // }
+
+        // let Some(symbol_val) = self.symbols.get(addr_str) else {
+        //     return Err(ParserError::InvalidSymbol);
+        // };
+        // let bin_str = format!("{:016b}", symbol_val & MAX_ADDRESS);
+
+        // Ok(bin_str)
+    // }
+
+    fn addr<'a>(&self, instruction: &'a str) -> Option<&'a str> {
+        instruction.split_once('@').map(|(_, addr_str)| addr_str)
+    }
+
+    fn comp<'a>(&self, instruction: &'a str) -> Result<&'a str, ParserError> {
+        // Handle DEST=COMP
+        if let Some((_, after)) = instruction.rsplit_once('=') {
+            // Handle DEST=COMP;JUMP
             if let Some((middle, _)) = after.rsplit_once(';') {
-                middle
+                return Ok(middle);
             } else {
-                after
+                return Ok(after);
             }
+        // Handle COMP;JUMP
         } else if let Some((before, _)) = instruction.rsplit_once(';') {
-            before
-        } else {
-            return "0101010";
+            return Ok(before);
         };
 
+        Err(ParserError::InvalidFormat)
+        // };
+    }
+
+    fn dest<'a>(&self, instruction: &'a str) -> Option<&'a str> {
+        let Some((dest_str, _)) = instruction.rsplit_once('=') else {
+            return None;
+        };
+
+        Some(dest_str)
+    }
+
+    fn jump<'a>(&self, instruction: &'a str) -> Option<&'a str> {
+        let Some((_, jump_str)) = instruction.rsplit_once(';') else {
+            return None;
+        };
+
+        Some(jump_str)
+    }
+
+    fn instruction_type(&self, line: &str) -> InstructionType {
+        if line.starts_with("@") {
+            return InstructionType::AInstruction;
+        } else if line.starts_with("(") && line.ends_with(")") {
+            return InstructionType::LInstruction;
+        }
+
+        InstructionType::CInstruction
+    }
+
+    fn read_lines(&self) -> io::Result<io::Lines<io::BufReader<File>>> {
+        let file = File::open(self.filepath)?;
+        Ok(io::BufReader::new(file).lines())
+    }
+}
+
+struct Code;
+
+impl Code {
+    fn comp_to_binary(&self, comp_str: &str) -> &str {
         match comp_str {
             "0" => "0101010",
             "1" => "0111111",
@@ -127,15 +224,11 @@ impl Parser<'_> {
             "M-D" => "1000111",
             "D&M" => "1000000",
             "D|M" => "1010101",
-            &_ => "0101010",
+            _ => "0101010",
         }
     }
 
-    fn dest(&self, instruction: &str) -> &str {
-        let Some((dest_str, _)) = instruction.rsplit_once('=') else {
-            return "000";
-        };
-
+    fn dest_to_binary(&self, dest_str: &str) -> &str {
         match dest_str {
             "null" => "000",
             "M" => "001",
@@ -149,11 +242,7 @@ impl Parser<'_> {
         }
     }
 
-    fn jump(&self, instruction: &str) -> &str {
-        let Some((_, jump_str)) = instruction.rsplit_once(';') else {
-            return "000";
-        };
-
+    fn jump_to_binary(&self, jump_str: &str) -> &str {
         match jump_str {
             "null" => "000",
             "JGT" => "001",
@@ -165,21 +254,6 @@ impl Parser<'_> {
             "JMP" => "111",
             &_ => "000",
         }
-    }
-
-    fn instruction_type(&self, line: &str) -> InstructionType {
-        if line.starts_with("@") {
-            return InstructionType::AInstruction;
-        } else if line.starts_with("(") && line.ends_with(")") {
-            return InstructionType::LInstruction;
-        }
-
-        return InstructionType::CInstruction;
-    }
-
-    fn read_lines(&self) -> io::Result<io::Lines<io::BufReader<File>>> {
-        let file = File::open(self.filepath)?;
-        Ok(io::BufReader::new(file).lines())
     }
 }
 
@@ -193,16 +267,20 @@ fn main() {
         ("SCREEN".to_string(), 0x4000),
         ("KBD".to_string(), 0x6000),
     ]);
+    let mut symbol_counter: usize = STARTING_VARIABLE_ADDRESS;
+
     // Default registers R0..R15
-    for i in 0..15 {
-        let formatted_symbol = format!("R{:}", i).to_string();
+    for i in 0..=15 {
+        let formatted_symbol = format!("R{:}", i);
         default_symbols.insert(formatted_symbol, i);
     }
 
     let mut parser = Parser {
-        filepath: "../max/Max.asm",
-        symbols: &mut default_symbols,
+        filepath: "../add/Add.asm",
+        // symbols: &mut default_symbols,
+        // symbol_counter: &mut symbol_counter,
     };
+
     // Call parser to translate .asm file into binary
-    parser.parse();
+    parser.parse().ok();
 }
