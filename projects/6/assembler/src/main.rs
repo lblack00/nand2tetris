@@ -6,7 +6,7 @@ use std::io::{self, BufRead};
 
 const MAX_ADDRESS: usize = 0x7FFF;
 const STARTING_VARIABLE_ADDRESS: usize = 16;
-static SYMBOL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z]+[A-Za-z0-9_]*$").unwrap());
+static SYMBOL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z_.$:]+[A-Za-z_.$:0-9]*$").unwrap());
 static ADDRESS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[0-9]+$").unwrap());
 
 // struct Assembler<'a> {
@@ -50,10 +50,12 @@ impl From<std::num::ParseIntError> for ParserError {
 
 struct Parser<'a> {
     filepath: &'a str,
+    program_counter: &'a mut usize,
 }
 
 impl Parser<'_> {
     fn parse(&mut self) -> Result<bool, ParserError> {
+        // First pass
         if let Ok(lines) = self.read_lines() {
             for line in lines.map_while(Result::ok) {
                 // Take instructions before inline comments if any
@@ -63,6 +65,30 @@ impl Parser<'_> {
                 };
 
                 // Check if instruction is whitespace or comment
+                if current_instruction.is_empty() {
+                    continue;
+                }
+
+                // Determine instruction type
+                let instruction_type: InstructionType = self.instruction_type(current_instruction);
+
+                // Parse instructions
+                let result = match instruction_type {
+                    InstructionType::CInstruction => Ok("".to_string()),
+                    InstructionType::AInstruction => Ok("".to_string()),
+                    InstructionType::LInstruction => self.parse_label_symbol(current_instruction),
+                };
+            }
+        }
+
+        // Second pass
+        if let Ok(lines) = self.read_lines() {
+            for line in lines.map_while(Result::ok) {
+                let current_instruction = match line.split_once("//") {
+                    Some((before, _)) => before.trim(),
+                    None => line.trim(),
+                };
+
                 if current_instruction.is_empty() {
                     continue;
                 }
@@ -121,6 +147,10 @@ impl Parser<'_> {
         Err(ParserError::InvalidFormat)
     }
 
+    fn parse_label_symbol(&self, addr_str: &str) -> Result<String, ParserError> {
+        return Ok("".to_string())
+    }
+
     // fn parse_symbol(&mut self, addr_str: &str) -> Result<String, ParserError> {
         // // If symbol is not in the symbol table, add it to symbol table as variable
         // if !self.symbols.contains_key(addr_str) {
@@ -156,7 +186,6 @@ impl Parser<'_> {
         };
 
         Err(ParserError::InvalidFormat)
-        // };
     }
 
     fn dest<'a>(&self, instruction: &'a str) -> Option<&'a str> {
@@ -257,6 +286,15 @@ impl Code {
     }
 }
 
+struct SymbolTable {
+    // symbols: &'a mut HashMap<String, usize>,
+    // symbol_counter: &'a mut usize,
+}
+
+impl SymbolTable {
+
+}
+
 fn main() {
     let mut default_symbols = HashMap::<String, usize>::from([
         ("SP".to_string(), 0x0000),
@@ -277,6 +315,7 @@ fn main() {
 
     let mut parser = Parser {
         filepath: "../add/Add.asm",
+        program_counter: &mut(0 as usize),
         // symbols: &mut default_symbols,
         // symbol_counter: &mut symbol_counter,
     };
