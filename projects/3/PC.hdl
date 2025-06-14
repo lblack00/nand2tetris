@@ -13,12 +13,11 @@ CHIP PC {
     OUT out[16];
     
     PARTS:
-    Xor16(a=in, b=in, out=zero);
     Inc16(in=pcout, out=pcoutinc);
 
     Mux16(a=pcout, b=pcoutinc, sel=inc, out=incout);
     Mux16(a=incout, b=in, sel=load, out=inout);
-    Mux16(a=inout, b=zero, sel=reset, out=resetout);
+    Mux16(a=inout, b=false, sel=reset, out=resetout);
     Or(a=reset, b=load, out=preload);
     Or(a=preload, b=inc, out=loadpc);
 
