@@ -51,6 +51,8 @@ impl From<std::num::ParseIntError> for ParserError {
 struct Parser<'a> {
     filepath: &'a str,
     program_counter: &'a mut usize,
+    symbols: &'a mut HashMap<String, usize>,
+    symbol_counter: &'a mut usize,
 }
 
 impl Parser<'_> {
@@ -78,6 +80,10 @@ impl Parser<'_> {
                     InstructionType::AInstruction => Ok("".to_string()),
                     InstructionType::LInstruction => self.parse_label_symbol(current_instruction),
                 };
+
+                if instruction_type == InstructionType::CInstruction || instruction_type == InstructionType::AInstruction {
+                    *self.program_counter += 1;
+                }
             }
         }
 
@@ -100,7 +106,7 @@ impl Parser<'_> {
                 let result = match instruction_type {
                     InstructionType::CInstruction => self.parse_c_instruction(current_instruction),
                     InstructionType::AInstruction => self.parse_a_instruction(current_instruction),
-                    InstructionType::LInstruction => todo!(),
+                    InstructionType::LInstruction => Ok("".to_string()),
                 };
 
                 // Write binary string to output and panic on invalid instruction
@@ -132,12 +138,12 @@ impl Parser<'_> {
             return Err(ParserError::EmptyAddress);
         }
 
-        // if SYMBOL_RE.is_match(&addr_str) {
-        //     return Ok(self.parse_symbol(&addr_str)?);
-        // } else if ADDRESS_RE.is_match(&addr_str) {
-        //     let bin_str = format!("{:016b}", addr_str.parse::<usize>()? & MAX_ADDRESS);
-        //     return Ok(bin_str);
-        // }
+        if SYMBOL_RE.is_match(&addr_str) {
+            return Ok(self.parse_symbol(&addr_str)?);
+        } else if ADDRESS_RE.is_match(&addr_str) {
+            let bin_str = format!("{:016b}", addr_str.parse::<usize>()? & MAX_ADDRESS);
+            return Ok(bin_str);
+        }
 
         if ADDRESS_RE.is_match(&addr_str) {
             let bin_str = format!("{:016b}", addr_str.parse::<usize>()? & MAX_ADDRESS);
@@ -147,28 +153,35 @@ impl Parser<'_> {
         Err(ParserError::InvalidFormat)
     }
 
-    fn parse_label_symbol(&self, addr_str: &str) -> Result<String, ParserError> {
-        return Ok("".to_string())
+    fn parse_label_symbol(&mut self, current_instruction: &str) -> Result<String, ParserError> {
+        let label_str = &current_instruction[1..current_instruction.len() - 1];
+        
+        if SYMBOL_RE.is_match(&label_str) {
+            self.symbols.insert(label_str.to_string(), *self.program_counter);
+            return Ok("".to_string());
+        }
+
+        Err(ParserError::InvalidFormat)
     }
 
-    // fn parse_symbol(&mut self, addr_str: &str) -> Result<String, ParserError> {
-        // // If symbol is not in the symbol table, add it to symbol table as variable
-        // if !self.symbols.contains_key(addr_str) {
-        //     self.symbols
-        //         .insert(addr_str.to_string(), *self.symbol_counter);
-        //     *self.symbol_counter += 1;
-        // }
+    fn parse_symbol(&mut self, addr_str: &str) -> Result<String, ParserError> {
+        // If symbol is not in the symbol table, add it to symbol table as variable
+        if !self.symbols.contains_key(addr_str) {
+            self.symbols
+                .insert(addr_str.to_string(), *self.symbol_counter);
+            *self.symbol_counter += 1;
+        }
 
-        // let Some(symbol_val) = self.symbols.get(addr_str) else {
-        //     return Err(ParserError::InvalidSymbol);
-        // };
-        // let bin_str = format!("{:016b}", symbol_val & MAX_ADDRESS);
+        let Some(symbol_val) = self.symbols.get(addr_str) else {
+            return Err(ParserError::InvalidSymbol);
+        };
+        let bin_str = format!("{:016b}", symbol_val & MAX_ADDRESS);
 
-        // Ok(bin_str)
-    // }
+        Ok(bin_str)
+    }
 
     fn addr<'a>(&self, instruction: &'a str) -> Option<&'a str> {
-        instruction.split_once('@').map(|(_, addr_str)| addr_str)
+        Some(&instruction[1..])
     }
 
     fn comp<'a>(&self, instruction: &'a str) -> Result<&'a str, ParserError> {
@@ -286,15 +299,6 @@ impl Code {
     }
 }
 
-struct SymbolTable {
-    // symbols: &'a mut HashMap<String, usize>,
-    // symbol_counter: &'a mut usize,
-}
-
-impl SymbolTable {
-
-}
-
 fn main() {
     let mut default_symbols = HashMap::<String, usize>::from([
         ("SP".to_string(), 0x0000),
@@ -314,10 +318,10 @@ fn main() {
     }
 
     let mut parser = Parser {
-        filepath: "../add/Add.asm",
+        filepath: "../max/Max.asm",
         program_counter: &mut(0 as usize),
-        // symbols: &mut default_symbols,
-        // symbol_counter: &mut symbol_counter,
+        symbols: &mut default_symbols,
+        symbol_counter: &mut symbol_counter,
     };
 
     // Call parser to translate .asm file into binary
