@@ -53,7 +53,10 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn clean_line<'a>(&self, line: &'a str) -> &'a str {
-        line.split_once("//").map(|(before, _)| before).unwrap_or(line).trim()
+        line.split_once("//")
+            .map(|(before, _)| before)
+            .unwrap_or(line)
+            .trim()
     }
 
     fn first_pass(&mut self, lines: &Vec<String>) {
@@ -90,12 +93,8 @@ impl Parser<'_> {
             // Determine instruction type and parse C and A instructions
             let result = match self.instruction_type(current_instruction) {
                 InstructionType::LInstruction => continue,
-                InstructionType::CInstruction => {
-                    self.parse_c_instruction(current_instruction)
-                }
-                InstructionType::AInstruction => {
-                    self.parse_a_instruction(current_instruction)
-                }
+                InstructionType::CInstruction => self.parse_c_instruction(current_instruction),
+                InstructionType::AInstruction => self.parse_a_instruction(current_instruction),
             };
 
             if let Err(e) = write!(self.output_file, "{}\n", result.unwrap()) {
