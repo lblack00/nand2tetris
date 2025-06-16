@@ -1,20 +1,15 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
+use std::env;
 use std::fs::File;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 
 const MAX_ADDRESS: usize = 0x7FFF;
 const STARTING_VARIABLE_ADDRESS: usize = 16;
-static SYMBOL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z_.$:]+[A-Za-z_.$:0-9]*$").unwrap());
+static SYMBOL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[A-Za-z_.$:]+[A-Za-z_.$:0-9]*$").unwrap());
 static ADDRESS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[0-9]+$").unwrap());
-
-// struct Assembler<'a> {
-//     // filepath: &'a str,
-//     // symbols: &'a mut HashMap<String, usize>,
-//     // symbol_counter: &'a mut usize,
-// }
-struct Assembler;
 
 #[derive(Clone, Debug, PartialEq)]
 enum InstructionType {
@@ -49,75 +44,71 @@ impl From<std::num::ParseIntError> for ParserError {
 }
 
 struct Parser<'a> {
-    filepath: &'a str,
+    input_filepath: &'a str,
+    output_file: File,
     program_counter: &'a mut usize,
     symbols: &'a mut HashMap<String, usize>,
     symbol_counter: &'a mut usize,
 }
 
 impl Parser<'_> {
-    fn parse(&mut self) -> Result<bool, ParserError> {
-        // First pass
-        if let Ok(lines) = self.read_lines() {
-            for line in lines.map_while(Result::ok) {
-                // Take instructions before inline comments if any
-                let current_instruction = match line.split_once("//") {
-                    Some((before, _)) => before.trim(),
-                    None => line.trim(),
-                };
+    fn clean_line<'a>(&self, line: &'a str) -> &'a str {
+        line.split_once("//").map(|(before, _)| before).unwrap_or(line).trim()
+    }
 
-                // Check if instruction is whitespace or comment
-                if current_instruction.is_empty() {
-                    continue;
-                }
+    fn first_pass(&mut self, lines: &Vec<String>) {
+        for line in lines {
+            // Take instructions before inline comments if any
+            let current_instruction = self.clean_line(line);
 
-                // Determine instruction type
-                let instruction_type: InstructionType = self.instruction_type(current_instruction);
+            // Check if instruction is whitespace or comment
+            if current_instruction.is_empty() {
+                continue;
+            }
 
-                // Parse instructions
-                let result = match instruction_type {
-                    InstructionType::CInstruction => Ok("".to_string()),
-                    InstructionType::AInstruction => Ok("".to_string()),
-                    InstructionType::LInstruction => self.parse_label_symbol(current_instruction),
-                };
+            // Determine instruction type
+            let instruction_type: InstructionType = self.instruction_type(current_instruction);
 
-                if instruction_type == InstructionType::CInstruction || instruction_type == InstructionType::AInstruction {
-                    *self.program_counter += 1;
-                }
+            // Parse labels
+            if instruction_type == InstructionType::LInstruction {
+                let _ = self.parse_label_symbol(current_instruction);
+            } else {
+                *self.program_counter += 1;
             }
         }
+    }
 
+    fn second_pass(&mut self, lines: &Vec<String>) {
         // Second pass
-        if let Ok(lines) = self.read_lines() {
-            for line in lines.map_while(Result::ok) {
-                let current_instruction = match line.split_once("//") {
-                    Some((before, _)) => before.trim(),
-                    None => line.trim(),
-                };
+        for line in lines {
+            let current_instruction = self.clean_line(line);
 
-                if current_instruction.is_empty() {
-                    continue;
+            if current_instruction.is_empty() {
+                continue;
+            }
+
+            // Determine instruction type and parse C and A instructions
+            let result = match self.instruction_type(current_instruction) {
+                InstructionType::LInstruction => continue,
+                InstructionType::CInstruction => {
+                    self.parse_c_instruction(current_instruction)
                 }
-
-                // Determine instruction type
-                let instruction_type: InstructionType = self.instruction_type(current_instruction);
-
-                // Parse instructions
-                let result = match instruction_type {
-                    InstructionType::CInstruction => self.parse_c_instruction(current_instruction),
-                    InstructionType::AInstruction => self.parse_a_instruction(current_instruction),
-                    InstructionType::LInstruction => Ok("".to_string()),
-                };
-
-                // Write binary string to output and panic on invalid instruction
-                match result {
-                    Ok(parsed_result) => println!("{:?}", parsed_result),
-                    Err(e) => panic!("Error parsing instruction '{}': {}", line, e),
+                InstructionType::AInstruction => {
+                    self.parse_a_instruction(current_instruction)
                 }
+            };
+
+            if let Err(e) = write!(self.output_file, "{}\n", result.unwrap()) {
+                panic!("Error parsing instruction '{}': {}", line, e);
             }
         }
+    }
 
-        Ok(true)
+    fn parse(&mut self) {
+        let lines = self.read_lines().ok().expect("read file");
+
+        self.first_pass(&lines);
+        self.second_pass(&lines);
     }
 
     fn parse_c_instruction(&mut self, current_instruction: &str) -> Result<String, ParserError> {
@@ -145,20 +136,17 @@ impl Parser<'_> {
             return Ok(bin_str);
         }
 
-        if ADDRESS_RE.is_match(&addr_str) {
-            let bin_str = format!("{:016b}", addr_str.parse::<usize>()? & MAX_ADDRESS);
-            return Ok(bin_str);
-        }
-
         Err(ParserError::InvalidFormat)
     }
 
     fn parse_label_symbol(&mut self, current_instruction: &str) -> Result<String, ParserError> {
+        // Remove parenthesis
         let label_str = &current_instruction[1..current_instruction.len() - 1];
-        
+
         if SYMBOL_RE.is_match(&label_str) {
-            self.symbols.insert(label_str.to_string(), *self.program_counter);
-            return Ok("".to_string());
+            self.symbols
+                .insert(label_str.to_string(), *self.program_counter);
+            return Ok(label_str.to_string());
         }
 
         Err(ParserError::InvalidFormat)
@@ -227,9 +215,11 @@ impl Parser<'_> {
         InstructionType::CInstruction
     }
 
-    fn read_lines(&self) -> io::Result<io::Lines<io::BufReader<File>>> {
-        let file = File::open(self.filepath)?;
-        Ok(io::BufReader::new(file).lines())
+    fn read_lines(&self) -> io::Result<Vec<String>> {
+        let file = File::open(self.input_filepath)?;
+        let buffer = io::BufReader::new(file);
+
+        buffer.lines().collect()
     }
 }
 
@@ -300,6 +290,12 @@ impl Code {
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 3 {
+        println!("Usage: assembler -- <input filename> <output filename>");
+        return;
+    }
+
     let mut default_symbols = HashMap::<String, usize>::from([
         ("SP".to_string(), 0x0000),
         ("LCL".to_string(), 0x0001),
@@ -317,13 +313,16 @@ fn main() {
         default_symbols.insert(formatted_symbol, i);
     }
 
+    let output_file = File::create(&args[2]);
+
     let mut parser = Parser {
-        filepath: "../max/Max.asm",
-        program_counter: &mut(0 as usize),
+        input_filepath: &args[1],
+        output_file: output_file.expect("output file"),
+        program_counter: &mut (0 as usize),
         symbols: &mut default_symbols,
         symbol_counter: &mut symbol_counter,
     };
 
     // Call parser to translate .asm file into binary
-    parser.parse().ok();
+    parser.parse();
 }
