@@ -12,7 +12,7 @@ pub enum InstructionType {
 
 pub struct Parser {
     input_filepath: String,
-    writer: code_writer::CodeWriter
+    writer: code_writer::CodeWriter,
 }
 
 impl fmt::Debug for Parser {
@@ -25,7 +25,7 @@ impl Parser {
     pub fn new(input_filepath: String, writer: code_writer::CodeWriter) -> Self {
         Self {
             input_filepath: input_filepath,
-            writer: writer
+            writer: writer,
         }
     }
 
@@ -58,7 +58,7 @@ impl Parser {
             //     arg1,
             //     arg2);
             if instruction_type == InstructionType::Arithmetic {
-                self.writer.write_arithmetic(arg1);    
+                self.writer.write_arithmetic_or_logical(arg1);
             } else {
                 self.writer.write_push_pop(arg1, arg2, instruction_type);
             }

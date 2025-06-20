@@ -1,141 +1,226 @@
 use crate::parser;
-use std::io::Write;
+use std::collections::HashMap;
 use std::fs::File;
+use std::io::Write;
 
 enum ArithmeticTranslation {
-	Add,
-	// Equal
-	Neg,
-	Sub
+    Add,
+    Neg,
+    Sub,
+    And,
+    Or,
+    Not,
+}
+
+fn dedent(translation: String) -> String {
+    translation
+        .lines()
+        .map(str::trim_start)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 impl ArithmeticTranslation {
-	fn dedent(&self, translation: &str) -> String {
-		translation
-			.lines()
-			.map(str::trim_start)
-			.collect::<Vec<_>>()
-			.join("\n")
-	}
+    fn two_arg_f(&self, operation: &str) -> String {
+        dedent(format!(
+            // SP--
+            // D=RAM[SP]
+            // SP--
+            // RAM[SP] = RAM[SP + 1] <op> RAM[SP]
+            // SP++
+            "@SP
+            M=M-1
+            A=M
+            D=M
+            @SP
+            M=M-1
+            A=M
+            M=M{}D
+            @SP
+            M=M+1",
+            operation
+        ))
+    }
 
-	fn value(&self) -> String {
-		match *self {
-			ArithmeticTranslation::Add => self.dedent(
-				// SP--
-				// D=RAM[SP]
-				// SP--
-				// RAM[SP] = RAM[SP + 1] + RAM[SP]
-				// SP++
-				"@SP
-				M=M-1
-				A=M
-				D=M
-				@SP
-				M=M-1
-				A=M
-				M=D+M
-				@SP
-				M=M+1"
-			),
-			ArithmeticTranslation::Neg => self.dedent(
-				"@SP
-				M=M-1
-				A=M
-				M=-M
-				@SP
-				M=M+1"
-			),
-			ArithmeticTranslation::Sub => self.dedent(
-				"@SP
-				M=M-1
-				A=M
-				D=M
-				@SP
-				M=M-1
-				A=M
-				M=M-D
-				@SP
-				M=M+1"
-			)
-			// ArithmeticTranslation::Equal => self.dedent(
-				// SP--
-				// D=RAM[SP]
-				// SP--
-				// if RAM[SP] == D (RAM[SP + 1])
-				// then RAM[SP] = 1
-				// else RAM[SP] = 0
+    fn one_arg_f(&self, operation: &str) -> String {
+        dedent(format!(
+            // SP--
+            // RAM[SP]=<op>RAM[SP]
+            // SP++
+            "@SP
+            M=M-1
+            A=M
+            M={}M
+            @SP
+            M=M+1",
+            operation
+        ))
+    }
 
-				// "@SP
-				// M=M-1
-				// A=M
-				// D=M
-				// @SP
-				// M=M-1
-				// A=M
-				// M=D-M
-				// @EQUAL
-				// M;JEQ
-				// M=0
-				// @SP
-				// M=M+1
-				// @NOT_EQUAL
-				// 0;JEQ
-				// (EQUAL)
-				// @SP
-				// A=M
-				// M=1
-				// @SP
-				// M=M+1
-				// (NOT_EQUAL)"
-			// )
-		}
-	}
+    fn value(&self) -> String {
+        match *self {
+            ArithmeticTranslation::Add => self.two_arg_f("+"),
+            ArithmeticTranslation::Neg => self.one_arg_f("-"),
+            ArithmeticTranslation::Sub => self.two_arg_f("-"),
+            ArithmeticTranslation::And => self.two_arg_f("&"),
+            ArithmeticTranslation::Or => self.two_arg_f("|"),
+            ArithmeticTranslation::Not => self.one_arg_f("!"),
+        }
+    }
+}
+
+enum LogicalTranslation {
+    Equal,
+    LessThan,
+    GreaterThan,
+}
+
+impl LogicalTranslation {
+    fn generate_bool_compare_asm(&self, keyword: &str, jump: &str, cnt: usize) -> String {
+        format!(
+            // SP--
+            // D = RAM[SP + 1]
+            // SP--
+            // if D - RAM[SP] == 0 then 1 else 0
+            // SP++
+            "@SP
+            M=M-1
+            A=M
+            D=M
+            @SP
+            M=M-1
+            A=M
+            D=M-D
+            @{1}_{0}
+            D;{2}
+            @NOT_{1}_{0}
+            0;JMP
+            ({1}_{0})
+            @SP
+            A=M
+            M=-1
+            @SP
+            M=M+1
+            @END_{1}_{0}
+            0;JMP
+            (NOT_{1}_{0})
+            @SP
+            A=M
+            M=0
+            @SP
+            M=M+1
+            (END_{1}_{0})
+            ",
+            cnt, keyword, jump
+        )
+    }
+
+    fn value(&self, command_counts: &HashMap<String, usize>) -> String {
+        match *self {
+            LogicalTranslation::Equal => {
+                let eq_cnt: usize = *command_counts.get("eq").expect("eq key");
+                let eq_asm: String = self.generate_bool_compare_asm("EQUAL", "JEQ", eq_cnt);
+
+                dedent(eq_asm)
+            }
+            LogicalTranslation::LessThan => {
+                let lt_cnt: usize = *command_counts.get("lt").expect("lt key");
+                let lt_asm: String = self.generate_bool_compare_asm("LT", "JLT", lt_cnt);
+
+                dedent(lt_asm)
+            }
+            LogicalTranslation::GreaterThan => {
+                let gt_cnt: usize = *command_counts.get("gt").expect("gt key");
+                let gt_asm: String = self.generate_bool_compare_asm("GT", "JGT", gt_cnt);
+
+                dedent(gt_asm)
+            }
+        }
+    }
 }
 
 pub struct CodeWriter {
-	output_file: File
+    output_file: File,
+    command_counts: HashMap<String, usize>,
 }
-// pub struct CodeWriter;
 
 impl CodeWriter {
-	pub fn new(output_filename: String) -> Self {
-		let output_file = File::create(output_filename);
-		Self { output_file: output_file.expect("output file") }
-	}
+    pub fn new(output_filename: String) -> Self {
+        let output_file = File::create(output_filename);
+        Self {
+            output_file: output_file.expect("output file"),
+            command_counts: HashMap::<String, usize>::from([
+                ("eq".to_string(), 0),
+                ("lt".to_string(), 0),
+                ("gt".to_string(), 0),
+            ]),
+        }
+    }
 
-	pub fn write_arithmetic(&mut self, arg1: String) {
-		if arg1 == "add" {
-			//SP--
-			writeln!(self.output_file, "{}", ArithmeticTranslation::Add.value());
-		} else if arg1 == "neg" {
-			// writeln!(self.output_file, "")
-			writeln!(self.output_file, "{}", ArithmeticTranslation::Neg.value());
-		} else if arg1 == "sub" {
-			writeln!(self.output_file, "{}", ArithmeticTranslation::Sub.value());
-		}
-	}
+    pub fn write_arithmetic_or_logical(&mut self, arg1: String) {
+        if arg1 == "eq" || arg1 == "lt" || arg1 == "gt" {
+            let cnt: usize = *self
+                .command_counts
+                .get(&arg1)
+                .expect(format!("{} key", arg1).as_str());
+            let asm_string: String = match arg1.as_str() {
+                "eq" => LogicalTranslation::Equal.value(&self.command_counts),
+                "lt" => LogicalTranslation::LessThan.value(&self.command_counts),
+                "gt" => LogicalTranslation::GreaterThan.value(&self.command_counts),
+                _ => unreachable!(),
+            };
 
-	pub fn write_push_pop(&mut self, arg1: String, arg2: String, instruction_type: parser::InstructionType) {
-		if instruction_type == parser::InstructionType::Push {
-			// D = i
-			writeln!(self.output_file, "@{}", arg2);
-			writeln!(self.output_file, "D=A");
-			// RAM[SP] = D
-			writeln!(self.output_file, "@SP");
-			writeln!(self.output_file, "A=M");
-			writeln!(self.output_file, "M=D");
-			// SP++
-			writeln!(self.output_file, "@SP");
-			writeln!(self.output_file, "M=M+1");
-		} else if instruction_type == parser::InstructionType::Pop {
-			// SP--
-			writeln!(self.output_file, "@SP");
-			writeln!(self.output_file, "M=M-1");
-			writeln!(self.output_file, "A=M");
-			writeln!(self.output_file, "D=M");
-			// RAM[i] = RAM[SP]
-			writeln!(self.output_file, "@{}", arg2);
-			writeln!(self.output_file, "M=D");
-		}
-	}
+            writeln!(self.output_file, "{}", asm_string);
+            self.command_counts.insert(arg1.to_string(), cnt + 1);
+        } else {
+            let asm_string: String = match arg1.as_str() {
+                "add" => ArithmeticTranslation::Add.value(),
+                "neg" => ArithmeticTranslation::Neg.value(),
+                "sub" => ArithmeticTranslation::Sub.value(),
+                "and" => ArithmeticTranslation::And.value(),
+                "or" => ArithmeticTranslation::Or.value(),
+                "not" => ArithmeticTranslation::Not.value(),
+                _ => todo!(),
+            };
+
+            writeln!(self.output_file, "{}", asm_string);
+        }
+    }
+
+    pub fn write_push_pop(
+        &mut self,
+        arg1: String,
+        arg2: String,
+        instruction_type: parser::InstructionType,
+    ) {
+        if instruction_type == parser::InstructionType::Push {
+            let push_asm: String = dedent(format!(
+                // D = i
+                // RAM[SP] = D
+                // SP++
+                "@{}
+                D=A
+                @SP
+                A=M
+                M=D
+                @SP
+                M=M+1",
+                arg2
+            ));
+            writeln!(self.output_file, "{}", push_asm);
+        } else if instruction_type == parser::InstructionType::Pop {
+            let pop_asm: String = dedent(format!(
+                // SP--
+                // RAM[i] = RAM[SP]
+                "@SP
+                M=M-1
+                A=M
+                D=M
+                @{}
+                M=D",
+                arg2
+            ));
+            writeln!(self.output_file, "{}", pop_asm);
+        }
+    }
 }
