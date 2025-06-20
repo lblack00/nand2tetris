@@ -1,9 +1,10 @@
+use crate::code_writer;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Lines};
 
 #[derive(Debug, PartialEq)]
-enum InstructionType {
+pub enum InstructionType {
     Arithmetic,
     Push,
     Pop,
@@ -11,6 +12,7 @@ enum InstructionType {
 
 pub struct Parser {
     input_filepath: String,
+    writer: code_writer::CodeWriter
 }
 
 impl fmt::Debug for Parser {
@@ -20,8 +22,11 @@ impl fmt::Debug for Parser {
 }
 
 impl Parser {
-    pub fn new(input_filepath: String) -> Self {
-        Self { input_filepath: input_filepath }
+    pub fn new(input_filepath: String, writer: code_writer::CodeWriter) -> Self {
+        Self {
+            input_filepath: input_filepath,
+            writer: writer
+        }
     }
 
     fn clean_line(&self, line: &str) -> String {
@@ -32,7 +37,7 @@ impl Parser {
             .to_string()
     }
 
-    pub fn parse(&self) -> Result<(), std::io::Error> {
+    pub fn parse(&mut self) -> Result<(), std::io::Error> {
         let lines = self.read_lines()?;
 
         for line in lines {
@@ -47,11 +52,16 @@ impl Parser {
             let arg1 = self.arg_n(&current_instruction, &instruction_type, true);
             let arg2 = self.arg_n(&current_instruction, &instruction_type, false);
 
-            println!("{:?} {:?} {:?} {:?}",
-                current_instruction,
-                instruction_type,
-                arg1,
-                arg2);
+            // println!("{:?} {:?} {:?} {:?}",
+            //     current_instruction,
+            //     instruction_type,
+            //     arg1,
+            //     arg2);
+            if instruction_type == InstructionType::Arithmetic {
+                self.writer.write_arithmetic(arg1);    
+            } else {
+                self.writer.write_push_pop(arg1, arg2, instruction_type);
+            }
         }
 
         Ok(())
