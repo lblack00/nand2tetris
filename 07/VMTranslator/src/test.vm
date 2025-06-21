@@ -1,11 +1,7 @@
-push constant 57
-push constant 31
-push constant 53
+push constant 510
+push constant 511
+pop temp 6
+pop local 2
+push temp 6
+push constant 512
 add
-push constant 112
-sub
-neg
-and
-push constant 82
-or
-not

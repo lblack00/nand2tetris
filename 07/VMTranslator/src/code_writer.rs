@@ -95,6 +95,7 @@ impl LogicalTranslation {
             D;{2}
             @NOT_{1}_{0}
             0;JMP
+            
             ({1}_{0})
             @SP
             A=M
@@ -187,29 +188,95 @@ impl CodeWriter {
         }
     }
 
-    pub fn write_push_pop(
-        &mut self,
-        arg1: String,
-        arg2: String,
-        instruction_type: parser::InstructionType,
-    ) {
-        if instruction_type == parser::InstructionType::Push {
-            let push_asm: String = dedent(format!(
+    fn get_address_symbol(&self, arg1: String, arg2: &str) -> String {
+        let address_symbol: &str = match arg1.as_str() {
+            "local" => "LCL",
+            "this" => "THIS",
+            "that" => "THAT",
+            "argument" => "ARG",
+            "pointer" => {
+                if arg2 == "0" {
+                    "THIS"
+                } else {
+                    "THAT"
+                }
+            }
+            "temp" => match arg2 {
+                "0" => "5",
+                "1" => "6",
+                "2" => "7",
+                "3" => "8",
+                "4" => "9",
+                "5" => "10",
+                "6" => "11",
+                "7" => "12",
+                &_ => unreachable!()
+            }
+            _ => unreachable!()
+            //static
+            //temp
+        };
+
+        address_symbol.to_string()
+    }
+
+    fn get_push_asm(&self, arg1: String, arg2: String) -> String {
+        if arg1 == "constant" || arg1 == "temp" {
+            let address_asm = match arg1.as_str() {
+                "constant" => format!(
+                    "@{}
+                    D=A",
+                    arg2.as_str()
+                ),
+                "temp" => format!(
+                    "@{}
+                    D=M",
+                    self.get_address_symbol(arg1, &arg2)
+                ),
+                _ => unreachable!()
+            };
+
+            return format!(
                 // D = i
                 // RAM[SP] = D
                 // SP++
-                "@{}
-                D=A
+                "{}
                 @SP
                 A=M
                 M=D
                 @SP
                 M=M+1",
-                arg2
-            ));
-            writeln!(self.output_file, "{}", push_asm);
-        } else if instruction_type == parser::InstructionType::Pop {
-            let pop_asm: String = dedent(format!(
+                address_asm
+            );
+        }
+
+        let address_symbol: String = self.get_address_symbol(arg1, &arg2);
+
+        format!(
+            "@{0}
+            D=M
+            @{1}
+            D=D+A
+            A=D
+            D=M
+            @SP
+            A=M
+            M=D
+            @SP
+            M=M+1",
+            address_symbol, arg2
+        )
+    }
+
+    fn get_pop_asm(&self, arg1: String, arg2: String) -> String {
+        if arg1 == "constant" || arg1 == "temp" {
+            let address_asm = match arg1.as_str() {
+                "constant" => arg2.as_str(),
+                "temp" => &self.get_address_symbol(arg1, &arg2),
+                _ => unreachable!()
+            };
+
+            return format!(
                 // SP--
                 // RAM[i] = RAM[SP]
                 "@SP
@@ -218,8 +285,78 @@ impl CodeWriter {
                 D=M
                 @{}
                 M=D",
-                arg2
-            ));
+                address_asm
+            );
+        }
+
+        let address_symbol: String = self.get_address_symbol(arg1, &arg2);
+
+        format!(
+            "@{}
+            D=A
+            @{}
+            D=D+M
+            @R13
+            M=D
+            @SP
+            M=M-1
+            A=M
+            D=M
+            @R13
+            A=M
+            M=D",
+            arg2, address_symbol
+        )
+    }
+
+    pub fn write_push_pop(
+        &mut self,
+        arg1: String,
+        arg2: String,
+        instruction_type: parser::InstructionType,
+    ) {
+        // if constant MEM = SP
+        //    local MEM = LCL + arg2
+        //    this MEM = THIS + arg2
+        //    that MEM = THAT + arg2
+        //    temp MEM = R5-R12
+        //    arg MEM = ARG + arg2
+        //    static MEM = STATIC [ranges 16-255] + arg2
+        //    pointer MEM = POINTER_0 (THIS) | POINTER_1 (THAT)
+
+        // popping
+        // @LCL
+        // D=M
+        // @2
+        // D=D+A
+        // @R13
+        // M=D
+        // @SP
+        // M=M-1
+        // A=M
+        // D=M
+        // @R13
+        // A=M
+        // M=D
+
+        // pushing
+        // @LCL
+        // D=M
+        // @5
+        // D=D+A
+        // A=D
+        // D=M
+        // @SP
+        // A=M
+        // M=D
+        // @SP
+        // M=M+1
+
+        if instruction_type == parser::InstructionType::Push {
+            let push_asm: String = dedent(self.get_push_asm(arg1, arg2));
+            writeln!(self.output_file, "{}", push_asm);
+        } else if instruction_type == parser::InstructionType::Pop {
+            let pop_asm: String = dedent(self.get_pop_asm(arg1, arg2));
             writeln!(self.output_file, "{}", pop_asm);
         }
     }
