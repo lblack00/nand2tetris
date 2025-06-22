@@ -194,6 +194,7 @@ impl CodeWriter {
             "this" => "THIS",
             "that" => "THAT",
             "argument" => "ARG",
+            "static" => arg2,
             "pointer" => {
                 if arg2 == "0" {
                     "THIS"
@@ -210,18 +211,22 @@ impl CodeWriter {
                 "5" => "10",
                 "6" => "11",
                 "7" => "12",
-                &_ => unreachable!()
-            }
-            _ => unreachable!()
-            //static
-            //temp
+                &_ => unreachable!(),
+            },
+            _ => unreachable!(),
         };
 
         address_symbol.to_string()
     }
 
     fn get_push_asm(&self, arg1: String, arg2: String) -> String {
-        if arg1 == "constant" || arg1 == "temp" {
+        if arg1 == "constant" || arg1 == "temp" || arg1 == "static" || arg1 == "pointer" {
+            let this_or_that: &str = if arg2 == "0" {
+                "THIS"
+            } else {
+                "THAT"
+            };
+
             let address_asm = match arg1.as_str() {
                 "constant" => format!(
                     "@{}
@@ -233,7 +238,20 @@ impl CodeWriter {
                     D=M",
                     self.get_address_symbol(arg1, &arg2)
                 ),
-                _ => unreachable!()
+                "static" => format!(
+                    "@{}
+                    D=A
+                    @16
+                    A=D+A
+                    D=M",
+                    arg2.as_str()
+                ),
+                "pointer" => format!(
+                    "@{}
+                    D=M",
+                    this_or_that
+                ),
+                _ => unreachable!(),
             };
 
             return format!(
@@ -269,11 +287,24 @@ impl CodeWriter {
     }
 
     fn get_pop_asm(&self, arg1: String, arg2: String) -> String {
-        if arg1 == "constant" || arg1 == "temp" {
+        if arg1 == "constant" || arg1 == "temp" || arg1 == "static" || arg1 == "pointer" {
+            let this_or_that: &str = if arg2 == "0" {
+                "THIS"
+            } else {
+                "THAT"
+            };
+
             let address_asm = match arg1.as_str() {
                 "constant" => arg2.as_str(),
                 "temp" => &self.get_address_symbol(arg1, &arg2),
-                _ => unreachable!()
+                "static" => &format!(
+                    "{}",
+                    (arg2.parse::<usize>().expect("static") + 16)
+                        .to_string()
+                        .as_str()
+                ),
+                "pointer" => &format!("{}", this_or_that),
+                _ => unreachable!(),
             };
 
             return format!(
@@ -323,34 +354,6 @@ impl CodeWriter {
         //    arg MEM = ARG + arg2
         //    static MEM = STATIC [ranges 16-255] + arg2
         //    pointer MEM = POINTER_0 (THIS) | POINTER_1 (THAT)
-
-        // popping
-        // @LCL
-        // D=M
-        // @2
-        // D=D+A
-        // @R13
-        // M=D
-        // @SP
-        // M=M-1
-        // A=M
-        // D=M
-        // @R13
-        // A=M
-        // M=D
-
-        // pushing
-        // @LCL
-        // D=M
-        // @5
-        // D=D+A
-        // A=D
-        // D=M
-        // @SP
-        // A=M
-        // M=D
-        // @SP
-        // M=M+1
 
         if instruction_type == parser::InstructionType::Push {
             let push_asm: String = dedent(self.get_push_asm(arg1, arg2));

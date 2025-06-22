@@ -24,6 +24,7 @@ D=M-D
 D;JEQ
 @NOT_EQUAL_0
 0;JMP
+
 (EQUAL_0)
 @SP
 A=M
@@ -66,6 +67,7 @@ D=M-D
 D;JEQ
 @NOT_EQUAL_1
 0;JMP
+
 (EQUAL_1)
 @SP
 A=M
@@ -108,6 +110,7 @@ D=M-D
 D;JEQ
 @NOT_EQUAL_2
 0;JMP
+
 (EQUAL_2)
 @SP
 A=M
@@ -150,6 +153,7 @@ D=M-D
 D;JLT
 @NOT_LT_0
 0;JMP
+
 (LT_0)
 @SP
 A=M
@@ -192,6 +196,7 @@ D=M-D
 D;JLT
 @NOT_LT_1
 0;JMP
+
 (LT_1)
 @SP
 A=M
@@ -234,6 +239,7 @@ D=M-D
 D;JLT
 @NOT_LT_2
 0;JMP
+
 (LT_2)
 @SP
 A=M
@@ -276,6 +282,7 @@ D=M-D
 D;JGT
 @NOT_GT_0
 0;JMP
+
 (GT_0)
 @SP
 A=M
@@ -318,6 +325,7 @@ D=M-D
 D;JGT
 @NOT_GT_1
 0;JMP
+
 (GT_1)
 @SP
 A=M
@@ -360,6 +368,7 @@ D=M-D
 D;JGT
 @NOT_GT_2
 0;JMP
+
 (GT_2)
 @SP
 A=M
