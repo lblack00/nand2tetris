@@ -52,15 +52,10 @@ impl Parser {
             let arg1 = self.arg_n(&current_instruction, &instruction_type, true);
             let arg2 = self.arg_n(&current_instruction, &instruction_type, false);
 
-            // println!("{:?} {:?} {:?} {:?}",
-            //     current_instruction,
-            //     instruction_type,
-            //     arg1,
-            //     arg2);
             if instruction_type == InstructionType::Arithmetic {
-                self.writer.write_arithmetic_or_logical(arg1);
+                self.writer.write_arithmetic_or_logical(arg1)?;
             } else {
-                self.writer.write_push_pop(arg1, arg2, instruction_type);
+                self.writer.write_push_pop(arg1, arg2, instruction_type)?;
             }
         }
 

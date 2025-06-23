@@ -1,22 +1,19 @@
+use std::env;
+
 mod code_writer;
 mod parser;
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 3 {
+        println!("Usage: cargo run -- <input filename> <output filename>");
+        return;
+    }
+
     let mut parser: parser::Parser = parser::Parser::new(
-        // "../StackArithmetic/SimpleAdd/SimpleAdd.vm".to_string(),
-        // code_writer::CodeWriter::new("../StackArithmetic/SimpleAdd/SimpleAdd.asm".to_string()),
-        // "../StackArithmetic/StackTest/StackTest.vm".to_string(),
-        // code_writer::CodeWriter::new("../StackArithmetic/StackTest/StackTest.asm".to_string()),
-        // "../MemoryAccess/BasicTest/BasicTest.vm".to_string(),
-        // code_writer::CodeWriter::new("../MemoryAccess/BasicTest/BasicTest.asm".to_string()),
-        // "../MemoryAccess/PointerTest/PointerTest.vm".to_string(),
-        // code_writer::CodeWriter::new("../MemoryAccess/PointerTest/PointerTest.asm".to_string()),
-        "../MemoryAccess/StaticTest/StaticTest.vm".to_string(),
-        code_writer::CodeWriter::new("../MemoryAccess/StaticTest/StaticTest.asm".to_string()),
-        // "src/test.vm".to_string(),
-        // code_writer::CodeWriter::new("src/test.asm".to_string()),
+        args[1].clone(),
+        code_writer::CodeWriter::new(args[2].clone()),
     );
-    // parser::Parser::new("../MemoryAccess/BasicTest/BasicTest.vm".to_string());
 
     parser.parse().ok();
 }

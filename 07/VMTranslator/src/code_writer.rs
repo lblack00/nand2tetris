@@ -158,7 +158,7 @@ impl CodeWriter {
         }
     }
 
-    pub fn write_arithmetic_or_logical(&mut self, arg1: String) {
+    pub fn write_arithmetic_or_logical(&mut self, arg1: String) -> Result<(), std::io::Error> {
         if arg1 == "eq" || arg1 == "lt" || arg1 == "gt" {
             let cnt: usize = *self
                 .command_counts
@@ -171,7 +171,7 @@ impl CodeWriter {
                 _ => unreachable!(),
             };
 
-            writeln!(self.output_file, "{}", asm_string);
+            writeln!(self.output_file, "{}", asm_string)?;
             self.command_counts.insert(arg1.to_string(), cnt + 1);
         } else {
             let asm_string: String = match arg1.as_str() {
@@ -184,8 +184,10 @@ impl CodeWriter {
                 _ => todo!(),
             };
 
-            writeln!(self.output_file, "{}", asm_string);
+            writeln!(self.output_file, "{}", asm_string)?;
         }
+
+        Ok(())
     }
 
     fn get_address_symbol(&self, arg1: String, arg2: &str) -> String {
@@ -221,11 +223,7 @@ impl CodeWriter {
 
     fn get_push_asm(&self, arg1: String, arg2: String) -> String {
         if arg1 == "constant" || arg1 == "temp" || arg1 == "static" || arg1 == "pointer" {
-            let this_or_that: &str = if arg2 == "0" {
-                "THIS"
-            } else {
-                "THAT"
-            };
+            let this_or_that: &str = if arg2 == "0" { "THIS" } else { "THAT" };
 
             let address_asm = match arg1.as_str() {
                 "constant" => format!(
@@ -288,11 +286,7 @@ impl CodeWriter {
 
     fn get_pop_asm(&self, arg1: String, arg2: String) -> String {
         if arg1 == "constant" || arg1 == "temp" || arg1 == "static" || arg1 == "pointer" {
-            let this_or_that: &str = if arg2 == "0" {
-                "THIS"
-            } else {
-                "THAT"
-            };
+            let this_or_that: &str = if arg2 == "0" { "THIS" } else { "THAT" };
 
             let address_asm = match arg1.as_str() {
                 "constant" => arg2.as_str(),
@@ -345,22 +339,15 @@ impl CodeWriter {
         arg1: String,
         arg2: String,
         instruction_type: parser::InstructionType,
-    ) {
-        // if constant MEM = SP
-        //    local MEM = LCL + arg2
-        //    this MEM = THIS + arg2
-        //    that MEM = THAT + arg2
-        //    temp MEM = R5-R12
-        //    arg MEM = ARG + arg2
-        //    static MEM = STATIC [ranges 16-255] + arg2
-        //    pointer MEM = POINTER_0 (THIS) | POINTER_1 (THAT)
-
+    ) -> Result<(), std::io::Error> {
         if instruction_type == parser::InstructionType::Push {
             let push_asm: String = dedent(self.get_push_asm(arg1, arg2));
-            writeln!(self.output_file, "{}", push_asm);
+            writeln!(self.output_file, "{}", push_asm)?;
         } else if instruction_type == parser::InstructionType::Pop {
             let pop_asm: String = dedent(self.get_pop_asm(arg1, arg2));
-            writeln!(self.output_file, "{}", pop_asm);
+            writeln!(self.output_file, "{}", pop_asm)?;
         }
+
+        Ok(())
     }
 }
