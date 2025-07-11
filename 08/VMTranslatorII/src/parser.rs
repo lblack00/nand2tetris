@@ -10,7 +10,10 @@ pub enum InstructionType {
     Pop,
     Label,
     Goto,
-    IfGoto
+    IfGoto,
+    //Function,
+    //Return,
+    //Call,
 }
 
 pub struct Parser {
@@ -63,13 +66,6 @@ impl Parser {
                 InstructionType::Goto => self.writer.write_goto(arg1)?,
                 InstructionType::IfGoto => self.writer.write_ifgoto(arg1)?,
             }
-            // if instruction_type == InstructionType::Arithmetic {
-            //     self.writer.write_arithmetic_or_logical(arg1)?;
-            // } else if instruction_type == InstructionType::Label {
-            //     ;
-            // } else {
-            //     self.writer.write_push_pop(arg1, arg2, instruction_type)?;
-            // }
         }
 
         Ok(())
